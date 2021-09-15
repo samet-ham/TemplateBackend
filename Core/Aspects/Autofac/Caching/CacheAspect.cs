@@ -12,28 +12,51 @@ namespace Core.Aspects.Autofac.Caching
 {
     public class CacheAspect : MethodInterception
     {
-        private int _duration;
-        private ICacheManager _cacheManager;
+        private readonly int _duration;
+		private readonly ICacheManager _cacheManager;
+		public CacheAspect(int duration = 60)
+		{
+			_duration = duration;
+			_cacheManager = ServiceTool.ServiceProvider.GetService<ICacheManager>();
+		}
 
-        public CacheAspect(int duration = 60)
+        public override void Intercept(IInvocation invocation)
         {
-            _duration = duration;
-            _cacheManager = ServiceTool.ServiceProvider.GetService<ICacheManager>();
-        }
+            var methodName = string.Format($"{invocation.Method.ReflectedType.FullName}.{invocation.Method.Name}");
+            var arguments = invocation.Arguments.ToList();
 
-         public override void Intercept(IInvocation invocation)
-        {
-            var methodName = string.Format($"{invocation.Arguments[0]}.{invocation.Method.Name}");
-            var arguments = invocation.Arguments;
-            var key = $"{methodName}({BuildKey(arguments)})";
-            if (_cacheManager.IsAdd(key))
+            var sb = new StringBuilder();
+            foreach (var item in arguments)
             {
-                invocation.ReturnValue = _cacheManager.Get(key);
+                var paramValues = item.GetType().GetProperties().Select(p => p.GetValue(item)?.ToString() ?? string.Empty);
+                sb.Append(string.Join('_', paramValues));
+            }
+
+            var key = $"{methodName}({string.Join(",", arguments.Select(x => x?.ToString() ?? "<Null>"))})";
+            var newKey = key + sb;
+            if (_cacheManager.IsAdd(newKey))
+            {
+                invocation.ReturnValue = _cacheManager.Get(newKey);
                 return;
             }
             invocation.Proceed();
-            _cacheManager.Add(key, invocation.ReturnValue, _duration);
+            _cacheManager.Add(newKey, invocation.ReturnValue, _duration);
         }
+
+        //public override void Intercept(IInvocation invocation)
+        //{
+        //	var methodName = string.Format($"{invocation.Arguments[0]}.{invocation.Method.Name}");
+        //	var arguments = invocation.Arguments;
+        //	var key = $"{methodName}({BuildKey(arguments)})";
+        //	if (_cacheManager.IsAdd(key))
+        //	{
+        //		invocation.ReturnValue = _cacheManager.Get(key);
+        //		return;
+        //	}
+        //	invocation.Proceed();
+        //	_cacheManager.Add(key, invocation.ReturnValue, _duration);
+        //}
+
 
         string BuildKey(object[] args)
         {
@@ -46,5 +69,6 @@ namespace Core.Aspects.Autofac.Caching
             }
             return sb.ToString();
         }
+
     }
 }
